@@ -193,10 +193,6 @@
         names.forEach((n, i) => chip($('payers'), 'radio', 'payer', n, false));
         names.forEach((n) => chip($('splits'), 'checkbox', 'split', n, true));
 
-        // เดาคนออกเงินจากชื่อ LINE (ถ้าชื่อตรงกับในชีต)
-        const guess = names.find((n) => myName && (myName.includes(n) || n.includes(myName)));
-        if (guess) document.querySelector(`input[name=payer][value="${CSS.escape(guess)}"]`).checked = true;
-
         $('splits').addEventListener('change', updateSummary);
         $('amount').addEventListener('input', updateSummary);
         $('toggleAll').addEventListener('click', () => {
