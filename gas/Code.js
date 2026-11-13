@@ -105,29 +105,31 @@ function handleLineEvent_(ev) {
     if (TRIGGER_WORDS.indexOf(text) >= 0) {
       replyWithButton_(ev.replyToken, 'กดปุ่มด้านล่างได้เลย 👇');
     } else if (SUMMARY_WORDS.indexOf(text) >= 0) {
-      replyWithButton_(ev.replyToken, buildSummaryText_());
+      replyMessage_(ev.replyToken, buildSummaryMessage_());
     }
   }
 }
 
-function replyWithButton_(replyToken, text) {
+function quickReplyItems_() {
   const liffId = props_().getProperty('LIFF_ID');
-  const message = {
-    type: 'text',
-    text: text,
-    quickReply: {
-      items: [
-        {
-          type: 'action',
-          action: { type: 'uri', label: '📝 จดรายจ่าย', uri: 'https://liff.line.me/' + liffId },
-        },
-        {
-          type: 'action',
-          action: { type: 'message', label: '📊 สรุปยอด', text: 'สรุป' },
-        },
-      ],
+  return [
+    {
+      type: 'action',
+      action: { type: 'uri', label: '📝 จดรายจ่าย', uri: 'https://liff.line.me/' + liffId },
     },
-  };
+    {
+      type: 'action',
+      action: { type: 'message', label: '📊 สรุปยอด', text: 'สรุป' },
+    },
+  ];
+}
+
+function replyWithButton_(replyToken, text) {
+  replyMessage_(replyToken, { type: 'text', text: text });
+}
+
+function replyMessage_(replyToken, message) {
+  message.quickReply = { items: quickReplyItems_() };
   lineApi_('https://api.line.me/v2/bot/message/reply', { replyToken: replyToken, messages: [message] });
 }
 
@@ -172,12 +174,44 @@ function calcTransfers_(people) {
   return transfers;
 }
 
-function buildSummaryText_() {
+function getExpenseItems_() {
+  const sh = dataSheet_();
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const rows = sh.getRange(2, 1, last - 1, 4).getValues();
+  const items = [];
+  rows.forEach(r => {
+    const item = String(r[1] || '').trim();
+    if (!item) return;
+    const amount = parseNum_(r[2]);
+    const payer = String(r[3] || '').trim();
+    items.push({ item: item, amount: amount, payer: payer });
+  });
+  return items;
+}
+
+function flexText_(text, opts) {
+  return Object.assign({ type: 'text', text: String(text) }, opts || {});
+}
+
+function flexRow_(left, right, leftOpts, rightOpts) {
+  return {
+    type: 'box',
+    layout: 'horizontal',
+    spacing: 'sm',
+    contents: [
+      flexText_(left, Object.assign({ size: 'sm', color: '#1F2933', flex: 3, wrap: true }, leftOpts)),
+      flexText_(right, Object.assign({ size: 'sm', color: '#1F2933', align: 'end', flex: 2 }, rightOpts)),
+    ],
+  };
+}
+
+function buildSummaryMessage_() {
   const sh = ss_().getSheetByName(CONCLUSION_SHEET_NAME);
-  if (!sh) return 'ไม่พบแท็บ "' + CONCLUSION_SHEET_NAME + '" ใน Google Sheet';
+  if (!sh) return { type: 'text', text: 'ไม่พบแท็บ "' + CONCLUSION_SHEET_NAME + '" ใน Google Sheet' };
 
   const rows = sh.getDataRange().getValues();
-  if (rows.length < 2) return 'ยังไม่มีข้อมูลสรุปในแท็บ ' + CONCLUSION_SHEET_NAME;
+  if (rows.length < 2) return { type: 'text', text: 'ยังไม่มีข้อมูลสรุปในแท็บ ' + CONCLUSION_SHEET_NAME };
 
   const people = [];
   let total = null;
@@ -194,29 +228,101 @@ function buildSummaryText_() {
     people.push({ name: name, paid: paid, used: used, net: net });
   }
 
-  if (!people.length) return 'ยังไม่มีรายชื่อในแท็บ ' + CONCLUSION_SHEET_NAME;
+  if (!people.length) return { type: 'text', text: 'ยังไม่มีรายชื่อในแท็บ ' + CONCLUSION_SHEET_NAME };
   if (total === null) total = people.reduce((sum, p) => sum + p.paid, 0);
 
-  const lines = [
-    '📊 สรุปยอดใช้จ่ายทั้งหมด',
-    '💰 รวมทั้งหมด: ' + fmtMoney_(total) + ' บาท',
-    '',
-    '👤 รายละเอียดรายคน:',
-  ];
-  people.forEach(p => {
-    lines.push('• ' + p.name + ': ออก ' + fmtMoney_(p.paid) + ' | ใช้ ' + fmtMoney_(p.used));
+  const items = getExpenseItems_();
+  const transfers = calcTransfers_(people);
+  const liffId = props_().getProperty('LIFF_ID');
+
+  const bodyContents = [];
+
+  // 1) รายละเอียดรายการค่าใช้จ่าย
+  bodyContents.push(flexText_('📝 รายการค่าใช้จ่าย (' + items.length + ')', { weight: 'bold', size: 'sm', color: '#06C755' }));
+  if (!items.length) {
+    bodyContents.push(flexText_('ยังไม่มีรายการที่บันทึก', { size: 'sm', color: '#7B8794', margin: 'sm' }));
+  } else {
+    const MAX_ITEMS = 30;
+    const hidden = Math.max(0, items.length - MAX_ITEMS);
+    if (hidden > 0) {
+      bodyContents.push(flexText_('...และรายการก่อนหน้าอีก ' + hidden + ' รายการ', { size: 'xs', color: '#7B8794', margin: 'xs' }));
+    }
+    const itemBoxes = items.slice(-MAX_ITEMS).map(it => {
+      const label = it.payer ? it.item + ' (' + it.payer + ')' : it.item;
+      return flexRow_('• ' + label, fmtMoney_(it.amount) + ' ฿', { color: '#374151' }, { weight: 'bold', color: '#1F2933' });
+    });
+    bodyContents.push({ type: 'box', layout: 'vertical', margin: 'sm', spacing: 'xs', contents: itemBoxes });
+  }
+
+  bodyContents.push({ type: 'separator', margin: 'lg' });
+
+  // 2) ยอดรายคน
+  bodyContents.push(flexText_('👤 ยอดรายคน (ออก / ใช้)', { weight: 'bold', size: 'sm', color: '#06C755', margin: 'lg' }));
+  const peopleBoxes = people.map(p =>
+    flexRow_(p.name, fmtMoney_(p.paid) + ' / ' + fmtMoney_(p.used) + ' ฿', { weight: 'bold' }, { color: '#4B5563' })
+  );
+  bodyContents.push({ type: 'box', layout: 'vertical', margin: 'sm', spacing: 'xs', contents: peopleBoxes });
+
+  bodyContents.push({ type: 'separator', margin: 'lg' });
+
+  // 3) สรุปยอดที่ต้องโอน
+  bodyContents.push(flexText_('💸 สรุปยอดที่ต้องโอน', { weight: 'bold', size: 'sm', color: '#06C755', margin: 'lg' }));
+  const transferBoxes = transfers.length
+    ? transfers.map(t =>
+        flexRow_(t.from + ' ➜ ' + t.to, fmtMoney_(t.amount) + ' ฿', { weight: 'bold', color: '#1F2933' }, { weight: 'bold', color: '#E12D39' })
+      )
+    : [flexText_('เคลียร์ยอดครบแล้ว 🎉', { size: 'sm', color: '#059669', weight: 'bold' })];
+
+  bodyContents.push({
+    type: 'box',
+    layout: 'vertical',
+    margin: 'sm',
+    paddingAll: 'md',
+    backgroundColor: '#F4F6F8',
+    cornerRadius: 'md',
+    spacing: 'xs',
+    contents: transferBoxes,
   });
 
-  const transfers = calcTransfers_(people);
-  lines.push('', '💸 สรุปยอดที่ต้องโอน:');
-  if (!transfers.length) {
-    lines.push('• เคลียร์ยอดครบแล้ว 🎉');
-  } else {
-    transfers.forEach(t => {
-      lines.push('• ' + t.from + ' ➜ ' + t.to + ': ' + fmtMoney_(t.amount) + ' บาท');
-    });
-  }
-  return lines.join('\n');
+  return {
+    type: 'flex',
+    altText: '📊 สรุปยอดใช้จ่ายทั้งหมด ' + fmtMoney_(total) + ' บาท (' + items.length + ' รายการ)',
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#06C755',
+        paddingAll: 'lg',
+        contents: [
+          flexText_('📊 สรุปยอดใช้จ่ายทั้งหมด', { color: '#FFFFFF', size: 'sm', weight: 'bold' }),
+          flexText_(fmtMoney_(total) + ' บาท', { color: '#FFFFFF', size: 'xxl', weight: 'bold', margin: 'xs' }),
+          flexText_('ทั้งหมด ' + items.length + ' รายการ', { color: '#E6F9EE', size: 'xs', margin: 'xs' }),
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: 'lg',
+        contents: bodyContents,
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: 'md',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#06C755',
+            height: 'sm',
+            action: { type: 'uri', label: '📝 จดรายจ่ายเพิ่ม', uri: 'https://liff.line.me/' + liffId },
+          },
+        ],
+      },
+    },
+  };
 }
 
 function lineApi_(url, payload) {
