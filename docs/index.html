@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>น้องจดจ่าย</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --green: #06c755;
+      --green-dark: #05a647;
+      --bg: #f4f6f8;
+      --card: #fff;
+      --text: #1f2933;
+      --muted: #7b8794;
+      --border: #e4e7eb;
+      --danger: #e12d39;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: 'Prompt', system-ui, sans-serif;
+      background: var(--bg); color: var(--text); font-size: 16px;
+    }
+    header {
+      background: var(--green); color: #fff; padding: 18px 20px 46px;
+    }
+    header h1 { margin: 0; font-size: 22px; font-weight: 600; }
+    header p { margin: 4px 0 0; opacity: .9; font-size: 14px; }
+    main { padding: 0 16px 120px; margin-top: -30px; }
+    .card {
+      background: var(--card); border-radius: 16px; padding: 18px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.06); margin-bottom: 14px;
+    }
+    label.title { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
+    .field { margin-bottom: 16px; }
+    .field:last-child { margin-bottom: 0; }
+    .row { display: flex; gap: 12px; }
+    .row > .field { flex: 1; }
+    input[type=text], input[type=number], input[type=date], input[type=time] {
+      width: 100%; font: inherit; padding: 12px 14px; border: 1.5px solid var(--border);
+      border-radius: 12px; background: #fff; outline: none; -webkit-appearance: none; min-height: 48px;
+    }
+    input:focus { border-color: var(--green); }
+    .amount-wrap { position: relative; }
+    .amount-wrap input { font-size: 26px; font-weight: 600; padding-right: 54px; }
+    .amount-wrap span { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip input { display: none; }
+    .chip span {
+      display: inline-block; padding: 9px 16px; border-radius: 999px; border: 1.5px solid var(--border);
+      background: #fff; cursor: pointer; user-select: none; transition: .15s;
+    }
+    .chip input:checked + span { background: var(--green); border-color: var(--green); color: #fff; }
+    .split-head { display: flex; justify-content: space-between; align-items: baseline; }
+    .link { background: none; border: 0; color: var(--green-dark); font: inherit; font-size: 14px; cursor: pointer; padding: 0; }
+    .summary { margin-top: 12px; font-size: 14px; color: var(--muted); }
+    .summary b { color: var(--text); }
+    .bar {
+      position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+      background: rgba(244,246,248,.95); backdrop-filter: blur(6px);
+    }
+    button.primary {
+      width: 100%; font: inherit; font-size: 18px; font-weight: 600; color: #fff; background: var(--green);
+      border: 0; border-radius: 14px; padding: 15px; cursor: pointer;
+    }
+    button.primary:disabled { opacity: .55; }
+    .error { color: var(--danger); font-size: 14px; margin: 0 0 10px; text-align: center; min-height: 1em; }
+    .center { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .done { font-size: 56px; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🧾 น้องจดจ่าย</h1>
+    <p id="hello">บันทึกรายจ่ายของแก๊ง</p>
+  </header>
+
+  <main>
+    <div id="loading" class="card center">กำลังโหลด...</div>
+
+    <form id="form" class="hidden" autocomplete="off">
+      <div class="card">
+        <div class="row">
+          <div class="field">
+            <label class="title" for="date">วันที่</label>
+            <input type="date" id="date" required />
+          </div>
+          <div class="field">
+            <label class="title" for="time">เวลา</label>
+            <input type="time" id="time" required />
+          </div>
+        </div>
+        <div class="field">
+          <label class="title" for="item">รายการ</label>
+          <input type="text" id="item" placeholder="เช่น ข้าวมันไก่, ค่าแท็กซี่" maxlength="100" required />
+        </div>
+        <div class="field">
+          <label class="title" for="amount">จำนวนเงิน</label>
+          <div class="amount-wrap">
+            <input type="number" id="amount" inputmode="decimal" step="0.01" min="0.01" placeholder="0" required />
+            <span>บาท</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="field">
+          <label class="title">คนออกเงิน</label>
+          <div class="chips" id="payers"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="field">
+          <div class="split-head">
+            <label class="title">หารใครบ้าง</label>
+            <button type="button" class="link" id="toggleAll">เลือกทั้งหมด</button>
+          </div>
+          <div class="chips" id="splits"></div>
+          <div class="summary" id="summary"></div>
+        </div>
+      </div>
+
+      <div class="bar">
+        <p class="error" id="error"></p>
+        <button type="submit" class="primary" id="submit">บันทึก</button>
+      </div>
+    </form>
+
+    <div id="success" class="card center hidden">
+      <div class="done">✅</div>
+      <h2 style="color:var(--text);margin:8px 0">บันทึกเรียบร้อย</h2>
+      <p id="successText"></p>
+      <button class="primary" type="button" onclick="liff.closeWindow()">ปิด</button>
+    </div>
+  </main>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="config.js"></script>
+  <script>
+    const { LIFF_ID, GAS_URL } = window.APP_CONFIG;
+    const $ = (id) => document.getElementById(id);
+    let names = [];
+    let myName = '';
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const fmt = (n) => Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+
+    function showError(msg) { $('error').textContent = msg || ''; }
+
+    function chip(container, type, name, value, checked) {
+      const label = document.createElement('label');
+      label.className = 'chip';
+      label.innerHTML = `<input type="${type}" name="${name}" value=""><span></span>`;
+      label.querySelector('input').value = value;
+      label.querySelector('input').checked = !!checked;
+      label.querySelector('span').textContent = value;
+      container.appendChild(label);
+    }
+
+    function getSplit() {
+      return [...document.querySelectorAll('input[name=split]:checked')].map((i) => i.value);
+    }
+
+    function updateSummary() {
+      const amount = Number($('amount').value) || 0;
+      const split = getSplit();
+      $('toggleAll').textContent = split.length === names.length ? 'ล้างทั้งหมด' : 'เลือกทั้งหมด';
+      $('summary').innerHTML = split.length
+        ? `หาร <b>${split.length}</b> คน · คนละ <b>${fmt(amount / split.length)}</b> บาท`
+        : 'ยังไม่ได้เลือกคนหาร';
+    }
+
+    async function init() {
+      try {
+        await liff.init({ liffId: LIFF_ID });
+        if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+
+        const [profile, res] = await Promise.all([
+          liff.getProfile().catch(() => null),
+          fetch(GAS_URL + '?action=names').then((r) => r.json()),
+        ]);
+        if (!res.ok) throw new Error(res.error || 'โหลดรายชื่อไม่สำเร็จ');
+        names = res.names;
+        if (profile) { myName = profile.displayName; $('hello').textContent = `สวัสดี ${myName} 👋`; }
+
+        const now = new Date();
+        $('date').value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+        $('time').value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+        names.forEach((n, i) => chip($('payers'), 'radio', 'payer', n, false));
+        names.forEach((n) => chip($('splits'), 'checkbox', 'split', n, true));
+
+        // เดาคนออกเงินจากชื่อ LINE (ถ้าชื่อตรงกับในชีต)
+        const guess = names.find((n) => myName && (myName.includes(n) || n.includes(myName)));
+        if (guess) document.querySelector(`input[name=payer][value="${CSS.escape(guess)}"]`).checked = true;
+
+        $('splits').addEventListener('change', updateSummary);
+        $('amount').addEventListener('input', updateSummary);
+        $('toggleAll').addEventListener('click', () => {
+          const all = getSplit().length !== names.length;
+          document.querySelectorAll('input[name=split]').forEach((i) => (i.checked = all));
+          updateSummary();
+        });
+        updateSummary();
+
+        $('loading').classList.add('hidden');
+        $('form').classList.remove('hidden');
+      } catch (err) {
+        $('loading').textContent = 'เกิดข้อผิดพลาด: ' + (err.message || err);
+      }
+    }
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      showError('');
+      const payerEl = document.querySelector('input[name=payer]:checked');
+      const data = {
+        action: 'add',
+        idToken: liff.getIDToken(),
+        date: $('date').value,
+        time: $('time').value,
+        item: $('item').value.trim(),
+        amount: Number($('amount').value),
+        payer: payerEl ? payerEl.value : '',
+        split: getSplit(),
+      };
+      if (!data.item) return showError('กรุณากรอกรายการ');
+      if (!(data.amount > 0)) return showError('กรุณากรอกจำนวนเงิน');
+      if (!data.payer) return showError('กรุณาเลือกคนออกเงิน');
+      if (!data.split.length) return showError('กรุณาเลือกคนหารอย่างน้อย 1 คน');
+
+      $('submit').disabled = true;
+      $('submit').textContent = 'กำลังบันทึก...';
+      try {
+        // ใช้ text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script
+        const res = await fetch(GAS_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(data),
+        }).then((r) => r.json());
+        if (!res.ok) throw new Error(res.error || 'บันทึกไม่สำเร็จ');
+
+        const [y, m, d] = data.date.split('-');
+        const msg =
+          `✅ บันทึกรายการเรียบร้อย\n` +
+          `📝 ${res.item}\n` +
+          `💰 ${fmt(res.amount)} บาท\n` +
+          `👤 ${res.payer} ออกเงิน\n` +
+          `👥 หาร ${res.split.length} คน: ${res.split.join(', ')}\n` +
+          `➗ คนละ ${fmt(res.perPerson)} บาท\n` +
+          `🗓️ ${d}/${m}/${y} ${data.time}`;
+
+        const ctx = liff.getContext();
+        const inChat = ctx && ['utou', 'group', 'room'].includes(ctx.type);
+        if (inChat) {
+          try {
+            await liff.sendMessages([{ type: 'text', text: msg }]);
+            liff.closeWindow();
+            return;
+          } catch (err) {
+            console.warn('sendMessages failed', err);
+          }
+        }
+        $('form').classList.add('hidden');
+        $('successText').textContent = `${res.item} · ${fmt(res.amount)} บาท`;
+        $('success').classList.remove('hidden');
+      } catch (err) {
+        showError(err.message || String(err));
+        $('submit').disabled = false;
+        $('submit').textContent = 'บันทึก';
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

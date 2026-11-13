@@ -1,0 +1,15 @@
+{
+  "name": "nong-jod-jai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "จดรายจ่ายผ่าน LINE OA + LIFF ลง Google Sheets",
+  "scripts": {
+    "login": "clasp login",
+    "pull": "clasp pull",
+    "push": "clasp push -f",
+    "watch": "clasp push -f --watch",
+    "deploy": "node scripts/deploy.js",
+    "logs": "clasp logs",
+    "open": "clasp open-script"
+  }
+}
