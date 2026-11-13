@@ -10,7 +10,9 @@
 const SPREADSHEET_ID = '12uilPxtPO2h9-DAFwD51rpNWYgY93NmznDhNhw-E06g';
 const DATA_SHEET_NAME = ''; // เว้นว่าง = ใช้แท็บแรกของไฟล์ ถ้าไม่ใช่ให้ใส่ชื่อแท็บ
 const NAME_SHEET_NAME = 'Name';
+const CONCLUSION_SHEET_NAME = 'Conclusion';
 const TRIGGER_WORDS = ['จด', '+', 'จดจ่าย', 'บันทึก'];
+const SUMMARY_WORDS = ['สรุป', 'สรุปยอด', 'ยอด'];
 
 // คอลัมน์ในแท็บข้อมูล (1-based)
 const COL = {
@@ -95,13 +97,15 @@ function doPost(e) {
 // ---------------------------------------------------------------- LINE webhook
 function handleLineEvent_(ev) {
   if (ev.type === 'join') {
-    replyWithButton_(ev.replyToken, 'สวัสดีจ้า น้องจดจ่ายมาแล้ว 🧾\nพิมพ์ "จด" หรือ "+" เมื่อไหร่ก็ได้ เพื่อบันทึกรายจ่าย');
+    replyWithButton_(ev.replyToken, 'สวัสดีจ้า น้องจดจ่ายมาแล้ว 🧾\nพิมพ์ "จด" เพื่อบันทึกรายจ่าย หรือ "สรุป" เพื่อดูยอด');
     return;
   }
   if (ev.type === 'message' && ev.message && ev.message.type === 'text') {
     const text = String(ev.message.text).trim();
     if (TRIGGER_WORDS.indexOf(text) >= 0) {
-      replyWithButton_(ev.replyToken, 'กดปุ่มด้านล่างเพื่อจดรายจ่ายได้เลย 👇');
+      replyWithButton_(ev.replyToken, 'กดปุ่มด้านล่างได้เลย 👇');
+    } else if (SUMMARY_WORDS.indexOf(text) >= 0) {
+      replyWithButton_(ev.replyToken, buildSummaryText_());
     }
   }
 }
@@ -112,13 +116,107 @@ function replyWithButton_(replyToken, text) {
     type: 'text',
     text: text,
     quickReply: {
-      items: [{
-        type: 'action',
-        action: { type: 'uri', label: '📝 จดรายจ่าย', uri: 'https://liff.line.me/' + liffId },
-      }],
+      items: [
+        {
+          type: 'action',
+          action: { type: 'uri', label: '📝 จดรายจ่าย', uri: 'https://liff.line.me/' + liffId },
+        },
+        {
+          type: 'action',
+          action: { type: 'message', label: '📊 สรุปยอด', text: 'สรุป' },
+        },
+      ],
     },
   };
   lineApi_('https://api.line.me/v2/bot/message/reply', { replyToken: replyToken, messages: [message] });
+}
+
+// ---------------------------------------------------------------- สรุปยอดจากแท็บ Conclusion
+function parseNum_(val) {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  const n = Number(String(val || '').replace(/,/g, '').trim());
+  return isNaN(n) ? 0 : n;
+}
+
+function fmtMoney_(n) {
+  const rounded = Math.round(n * 100) / 100;
+  return rounded.toLocaleString('en-US', {
+    minimumFractionDigits: Number.isInteger(rounded) ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function calcTransfers_(people) {
+  const creditors = [];
+  const debtors = [];
+  people.forEach(p => {
+    if (p.net > 0.005) creditors.push({ name: p.name, amount: p.net });
+    else if (p.net < -0.005) debtors.push({ name: p.name, amount: -p.net });
+  });
+  creditors.sort((a, b) => b.amount - a.amount);
+  debtors.sort((a, b) => b.amount - a.amount);
+
+  const transfers = [];
+  let i = 0;
+  let j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const pay = Math.min(debtors[i].amount, creditors[j].amount);
+    if (pay > 0.005) {
+      transfers.push({ from: debtors[i].name, to: creditors[j].name, amount: pay });
+    }
+    debtors[i].amount -= pay;
+    creditors[j].amount -= pay;
+    if (debtors[i].amount <= 0.005) i++;
+    if (creditors[j].amount <= 0.005) j++;
+  }
+  return transfers;
+}
+
+function buildSummaryText_() {
+  const sh = ss_().getSheetByName(CONCLUSION_SHEET_NAME);
+  if (!sh) return 'ไม่พบแท็บ "' + CONCLUSION_SHEET_NAME + '" ใน Google Sheet';
+
+  const rows = sh.getDataRange().getValues();
+  if (rows.length < 2) return 'ยังไม่มีข้อมูลสรุปในแท็บ ' + CONCLUSION_SHEET_NAME;
+
+  const people = [];
+  let total = null;
+  for (let i = 1; i < rows.length; i++) {
+    const name = String(rows[i][0] || '').trim();
+    if (!name) continue;
+    const paid = parseNum_(rows[i][1]);
+    const used = parseNum_(rows[i][2]);
+    const net = parseNum_(rows[i][3]);
+    if (/^total/i.test(name)) {
+      total = paid || used;
+      continue;
+    }
+    people.push({ name: name, paid: paid, used: used, net: net });
+  }
+
+  if (!people.length) return 'ยังไม่มีรายชื่อในแท็บ ' + CONCLUSION_SHEET_NAME;
+  if (total === null) total = people.reduce((sum, p) => sum + p.paid, 0);
+
+  const lines = [
+    '📊 สรุปยอดใช้จ่ายทั้งหมด',
+    '💰 รวมทั้งหมด: ' + fmtMoney_(total) + ' บาท',
+    '',
+    '👤 รายละเอียดรายคน:',
+  ];
+  people.forEach(p => {
+    lines.push('• ' + p.name + ': ออก ' + fmtMoney_(p.paid) + ' | ใช้ ' + fmtMoney_(p.used));
+  });
+
+  const transfers = calcTransfers_(people);
+  lines.push('', '💸 สรุปยอดที่ต้องโอน:');
+  if (!transfers.length) {
+    lines.push('• เคลียร์ยอดครบแล้ว 🎉');
+  } else {
+    transfers.forEach(t => {
+      lines.push('• ' + t.from + ' ➜ ' + t.to + ': ' + fmtMoney_(t.amount) + ' บาท');
+    });
+  }
+  return lines.join('\n');
 }
 
 function lineApi_(url, payload) {
